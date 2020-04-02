@@ -81,8 +81,21 @@ NODE_PLATFORM_DIR       := $(ZOO)/thinnect.node-platform
 
 # ______________ Build components - sources and includes _______________________
 
-SOURCES += radio_main.c
+SOURCES += main.c
 SOURCES += platform_push_button.c
+SOURCES += fake_sensors.c
+SOURCES += serial_receiver.c
+SOURCES += tracking_report.mapper.c
+SOURCES += radio_socket.c
+SOURCES += tracking_partner.c
+SOURCES += tracking_session.c
+SOURCES += speed_calculator.c
+
+# Use JTAG uart for logging, because opening JTAG port resets device momentarily
+CFLAGS += -DLOG_USE_JTAG_UART
+# Data will flow through the dedicated uart
+#CFLAGS += -DHDLC_USE_JTAG_UART
+#CFLAGS += -DHDLC_USE_EXTERNAL_UART
 
 # FreeRTOS
 FREERTOS_DIR ?= $(ZOO)/FreeRTOS-Kernel
@@ -99,6 +112,13 @@ SOURCES += $(FREERTOS_PORT_SRC) $(FREERTOS_SRC)
 
 # CMSIS_CONFIG_DIR is used to add default CMSIS and FreeRTOS configs to INCLUDES
 CMSIS_CONFIG_DIR ?= $(ZOO)/thinnect.cmsis-freertos/$(MCU_ARCH)/config
+
+# MoteXML components
+MOTEXML_DIR ?= $(ZOO)/prolab.motexml
+DTTYPES_DIR ?= $(ZOO)/prolab.dt-types
+INCLUDES += -I$(MOTEXML_DIR)/lib -I$(DTTYPES_DIR)
+SOURCES += $(MOTEXML_DIR)/lib/MLE.c $(MOTEXML_DIR)/lib/MLD.c $(MOTEXML_DIR)/lib/MLI.c
+CFLAGS += -DLIBEXPORT=""
 
 # Silabs EMLIB, RAIL, radio
 INCLUDES += \
@@ -153,6 +173,11 @@ INCLUDES += -I$(ZOO)/thinnect.device-signature/signature \
             -I$(ZOO)/thinnect.device-signature/area
 SOURCES  += $(ZOO)/thinnect.device-signature/signature/DeviceSignature.c \
             $(ZOO)/thinnect.device-signature/area/silabs/SignatureArea.c
+
+# serial layer
+SOURCES  += $(NODE_PLATFORM_DIR)/common/serial_protocol.c
+SOURCES  += $(NODE_PLATFORM_DIR)/common/hdlc_tools.c
+SOURCES  += $(NODE_PLATFORM_DIR)/silabs/serial_hdlc.c
 
 # Generally useful external tools
 INCLUDES += -I$(ZOO)/lammertb.libcrc/include \
