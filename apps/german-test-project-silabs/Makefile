@@ -13,6 +13,8 @@ DEFAULT_RADIO_CHANNEL   ?= 26
 
 # Set device address at compile time for cases where a signature is not present
 DEFAULT_AM_ADDR         ?= 1
+# Set destination address at compile time
+DESTINATION_GATEWAY_ADDRESS ?= 0xFFFF
 
 # No bootloader, app starts at 0
 APP_START               = 0
@@ -76,6 +78,8 @@ SW_PATCH_VERSION        := $(VERSION_PATCH)
 BUILD_TIMESTAMP         := $(shell date '+%s')
 IDENT_TIMESTAMP         := $(BUILD_TIMESTAMP)
 
+MW_CONVERTER_DIR       	:= mw_vehicle_detection
+
 # NODE_PLATFORM_DIR is used by targets to add components to INCLUDES and SOURCES
 NODE_PLATFORM_DIR       := $(ZOO)/thinnect.node-platform
 
@@ -85,11 +89,18 @@ SOURCES += main.c
 SOURCES += platform_push_button.c
 SOURCES += fake_sensors.c
 SOURCES += serial_receiver.c
-SOURCES += tracking_report.mapper.c
 SOURCES += radio_socket.c
 SOURCES += tracking_partner.c
+SOURCES += tracking_partner.mapper.c
 SOURCES += tracking_session.c
 SOURCES += speed_calculator.c
+SOURCES += microwave_motion_converter.c
+
+SOURCES += $(MW_CONVERTER_DIR)/src/FFT.c
+SOURCES += $(MW_CONVERTER_DIR)/src/signal_normalizer.c
+SOURCES += $(MW_CONVERTER_DIR)/src/vehicle_speed_detector.c
+
+INCLUDES += -I$(MW_CONVERTER_DIR)/include
 
 # Use JTAG uart for logging, because opening JTAG port resets device momentarily
 CFLAGS += -DLOG_USE_JTAG_UART
@@ -220,6 +231,7 @@ $(call passVarToCpp,CFLAGS,IDENT_TIMESTAMP)
 $(call passVarToCpp,CFLAGS,DEFAULT_AM_ADDR)
 $(call passVarToCpp,CFLAGS,DEFAULT_RADIO_CHANNEL)
 $(call passVarToCpp,CFLAGS,DEFAULT_PAN_ID)
+$(call passVarToCpp,CFLAGS,DESTINATION_GATEWAY_ADDRESS)
 
 UUID_APPLICATION_BYTES = $(call uuidToCstr,$(UUID_APPLICATION))
 $(call passVarToCpp,CFLAGS,UUID_APPLICATION_BYTES)

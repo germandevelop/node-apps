@@ -2,7 +2,7 @@
 
 #include <stddef.h>
 
-#include "radar_data.h"
+#include "motion_data.h"
 #include "result.h"
 
 
@@ -10,9 +10,9 @@
 
 
 static void speed_calculator_append_measurements_in_moving_away_mode(speed_calculator_t * const speed_calculator,
-									radar_data_t const * const radar_data);
-static void speed_calculator_append_measurements_in_moving_closer_mode(speed_calculator_t * const speed_calculator,
-									radar_data_t const * const radar_data);
+									motion_data_t const * const motion_data);
+static void speed_calculator_append_measurements_in_moving_toward_mode(speed_calculator_t * const speed_calculator,
+									motion_data_t const * const motion_data);
 
 void speed_calculator_init(speed_calculator_t * const speed_calculator)
 {
@@ -38,12 +38,12 @@ void speed_calculator_start_in_moving_away_mode(speed_calculator_t * const speed
 	return;
 }
 
-void speed_calculator_start_in_moving_closer_mode(speed_calculator_t * const speed_calculator)
+void speed_calculator_start_in_moving_toward_mode(speed_calculator_t * const speed_calculator)
 {
 	speed_calculator->speed_size = 0U;
 	speed_calculator->energy_size = 0U;
 
-	speed_calculator->append_measurements = speed_calculator_append_measurements_in_moving_closer_mode;
+	speed_calculator->append_measurements = speed_calculator_append_measurements_in_moving_toward_mode;
 
 	speed_calculator->is_computed = false;
 
@@ -58,19 +58,18 @@ void speed_calculator_is_computed(speed_calculator_t const * const speed_calcula
 	return;
 }
 
-
 void speed_calculator_append_measurements(speed_calculator_t * const speed_calculator,
-					radar_data_t const * const radar_data)
+					motion_data_t const * const motion_data)
 {
 	if(speed_calculator->is_computed == false)
 	{
-		speed_calculator->append_measurements(speed_calculator, radar_data);
+		speed_calculator->append_measurements(speed_calculator, motion_data);
 	}
 	return;
 }
 
 void speed_calculator_append_measurements_in_moving_away_mode(speed_calculator_t * const speed_calculator,
-								radar_data_t const * const radar_data)
+								motion_data_t const * const motion_data)
 {
 	bool is_speed_collecting = true;
 
@@ -82,7 +81,7 @@ void speed_calculator_append_measurements_in_moving_away_mode(speed_calculator_t
 		// fill energy data at fisrt
 		if(speed_calculator->energy_size < ARRAY_SIZE(speed_calculator->energy))
 		{
-			speed_calculator->energy[speed_calculator->energy_size] = radar_data->energy;
+			speed_calculator->energy[speed_calculator->energy_size] = motion_data->energy;
 
 			++speed_calculator->energy_size;
 		}
@@ -97,7 +96,7 @@ void speed_calculator_append_measurements_in_moving_away_mode(speed_calculator_t
 			{
 				speed_calculator->energy[i - 1U] = speed_calculator->energy[i];
 			}
-			speed_calculator->energy[last_idx] = radar_data->energy;
+			speed_calculator->energy[last_idx] = motion_data->energy;
 
 			// try to detect "pass detection border"
 			// if border is detected -> start speed data collecting
@@ -129,7 +128,7 @@ void speed_calculator_append_measurements_in_moving_away_mode(speed_calculator_t
 		// fill speed data at fisrt
 		if(speed_calculator->speed_size < ARRAY_SIZE(speed_calculator->speed))
 		{
-			speed_calculator->speed[speed_calculator->speed_size] = radar_data->speed;
+			speed_calculator->speed[speed_calculator->speed_size] = motion_data->speed;
 
 			++speed_calculator->speed_size;
 		}
@@ -143,15 +142,15 @@ void speed_calculator_append_measurements_in_moving_away_mode(speed_calculator_t
 	return;
 }
 
-void speed_calculator_append_measurements_in_moving_closer_mode(speed_calculator_t * const speed_calculator,
-								radar_data_t const * const radar_data)
+void speed_calculator_append_measurements_in_moving_toward_mode(speed_calculator_t * const speed_calculator,
+								motion_data_t const * const motion_data)
 {
 	// append energy measurements
 	{
 		// fill energy data at fisrt
 		if(speed_calculator->energy_size < ARRAY_SIZE(speed_calculator->energy))
 		{
-			speed_calculator->energy[speed_calculator->energy_size] = radar_data->energy;
+			speed_calculator->energy[speed_calculator->energy_size] = motion_data->energy;
 
 			++speed_calculator->energy_size;
 		}
@@ -166,7 +165,7 @@ void speed_calculator_append_measurements_in_moving_closer_mode(speed_calculator
 			{
 				speed_calculator->energy[i - 1U] = speed_calculator->energy[i];
 			}
-			speed_calculator->energy[last_idx] = radar_data->energy;
+			speed_calculator->energy[last_idx] = motion_data->energy;
 
 			// try to detect "pass detection border"
 			// if border is detected -> stop calculation process
@@ -198,7 +197,7 @@ void speed_calculator_append_measurements_in_moving_closer_mode(speed_calculator
 		// fill speed data at fisrt
 		if(speed_calculator->speed_size < ARRAY_SIZE(speed_calculator->speed))
 		{
-			speed_calculator->speed[speed_calculator->speed_size] = radar_data->speed;
+			speed_calculator->speed[speed_calculator->speed_size] = motion_data->speed;
 
 			++speed_calculator->speed_size;
 		}
@@ -212,30 +211,30 @@ void speed_calculator_append_measurements_in_moving_closer_mode(speed_calculator
 			{
 				speed_calculator->speed[i - 1U] = speed_calculator->speed[i];
 			}
-			speed_calculator->speed[last_idx] = radar_data->speed;
+			speed_calculator->speed[last_idx] = motion_data->speed;
 		}
 	}
 	return;
 }
 
 int speed_calculator_get_average_speed(speed_calculator_t const * const speed_calculator,
-					int32_t * const average_speed)
+					double * const average_speed)
 {
 	if(speed_calculator->speed_size > 0U)
 	{
-		int32_t sum = 0;
-		int32_t divider = 0;
+		double sum = 0.0;
+		double divider = 0.0;
 
 		for(uint8_t i = 0U; i < speed_calculator->speed_size; ++i)
 		{
-			if(speed_calculator->speed[i] > 0)
+			if(speed_calculator->speed[i] > 0.1)
 			{
 				sum += speed_calculator->speed[i];
 
 				++divider;
 			}
 		}
-		if(divider > 0)
+		if(divider > 0.1)
 		{
 			*average_speed = sum / divider;
 

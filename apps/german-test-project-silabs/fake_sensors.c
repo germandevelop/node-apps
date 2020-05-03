@@ -10,7 +10,7 @@
 #include "log.h"
 
 #include "serial_receiver.h"
-#include "radar_data.h"
+#include "motion_data.h"
 #include "result.h"
 
 
@@ -33,17 +33,17 @@ static serial_receiver_t serial_receiver;
 static bool is_radar_enabled; // ATOMIC ?????
 
 static motion_detect_f detect_motion_callback;
-static radar_data_receive_f receive_radar_data_callback;
+static motion_data_receive_f receive_motion_data_callback;
 
 
 static int fake_sensors_receive(const uint8_t *data, uint8_t length);
 
-int fake_sensors_init(motion_detect_f detect_callback, radar_data_receive_f receive_callback)
+int fake_sensors_init(motion_detect_f detect_callback, motion_data_receive_f receive_callback)
 {
 	is_radar_enabled = false;
 
 	detect_motion_callback = detect_callback;
-	receive_radar_data_callback = receive_callback;
+	receive_motion_data_callback = receive_callback;
 
 	if(serial_receiver_init(&serial_receiver, SERIAL_PROTOCOL_ID, fake_sensors_receive) == SUCCESS)
 	{
@@ -102,11 +102,11 @@ int fake_sensors_receive(const uint8_t *data, uint8_t size)
 		// process fake radar
 		if(is_radar_enabled == true)
 		{
-			radar_data_t radar_data;
-			radar_data.speed = fake_message.speed;
-			radar_data.energy = fake_message.energy;
+			motion_data_t motion_data;
+			motion_data.speed = ((double)fake_message.speed) / 1000.0;
+			motion_data.energy = ((double)fake_message.energy) / 1000.0;
 
-			receive_radar_data_callback(&radar_data);
+			receive_motion_data_callback(&motion_data);
 		}
 
 		ret_val = SUCCESS; 

@@ -10,6 +10,7 @@
 
 #include "SignatureArea.h"
 #include "DeviceSignature.h"
+#include "radio.h"
 
 #include "loggers_ext.h"
 #if defined(LOGGER_LDMA)
@@ -31,172 +32,471 @@ INCBIN(Header, "header.bin");
 #include "fake_sensors.h"
 #include "tracking_partner.h"
 #include "tracking_session.h"
-#include "radar_data.h"
-#include "tracking_report.h"
+#include "motion_data.h"
+#include "tracking_summary.h"
 #include "result.h"
 
 
-#define MOTION_SENSOR_FLAG_MASK 		0B00000001
-#define START_TRACKING_REQUEST_FLAG_MASK 	0B00000010
-#define STOP_TRACKING_REQUEST_FLAG_MASK 	0B00000100
+#define PAN_ID 0x22
+#define AM_ID 0xE1
+
+#define UNIT_MOTION_DETECTED_FLAG_MASK 		0B00000001
+#define UNIT_SESSION_COMPUTED_FLAG_MASK 	0B00000010
+#define UNIT_FAILURE_OCCURED_FLAG_MASK 		0B00000100
+#define UNIT_RADIO_FAILED_FLAG_MASK 		0B00001000
+#define PARTNER_START_REQUESTED_FLAG_MASK 	0B00010000
+#define PARTNER_STOP_REQUESTED_FLAG_MASK 	0B00100000
+#define PARTNER_SUMMARY_RECEIVED_FLAG_MASK 	0B01000000
+#define PARTNER_FAILURE_OCCURED_FLAG_MASK 	0B10000000
+
 
 #define PUSH_BUTTON_MASK 0B00000001
 
 
-
-static osThreadId_t tracking_state_thread_id;
-
-static osThreadId_t speed_calculation_thread_id;
-static osMessageQueueId_t radar_data_queue;
-
-static osMutexId_t tracking_system_mutex;
-
 static osThreadId_t main_thread_id;
 
-static tracking_partner_t tracking_partner;
+static osThreadId_t tracking_control_thread_id;
+static osThreadId_t speed_detection_thread_id;
+static osMutexId_t tracking_unit_mutex;
+static osSemaphoreId_t tracking_partner_semaphore;
+static osMessageQueueId_t motion_data_queue;
+
+static int32_t tracking_session_id;
+static int32_t partner_session_id;
+static double partner_speed;
 static tracking_session_t tracking_session;
+static tracking_partner_t tracking_partner;
+
+
+static comms_layer_t* radio_setup(am_addr_t radio_address);
+static int logger_fwrite_boot(const char *ptr, int len);
 
 
 static void on_sensor_movement_detetcted_ISR()
 {
-	info1("SENSOR ISR");
+	info1("MOTION SENSOR ISR");
 
-	osThreadFlagsSet(tracking_state_thread_id, MOTION_SENSOR_FLAG_MASK);	
+	osThreadFlagsSet(tracking_control_thread_id, UNIT_MOTION_DETECTED_FLAG_MASK);	
 
 	return;
 }
 
-static void on_partner_tracking_requested_ISR(bool is_turn_on)
+static void on_partner_tracking_requested_ISR(int32_t session_id, bool is_session_requested)
 {
-	if(is_turn_on == true)
+	if(is_session_requested == true)
 	{
-		info1("START TRACKING REQUEST ISR");
+		info1("START TRACKING REQUEST ISR: session_id = %d", session_id);
 
-		osThreadFlagsSet(tracking_state_thread_id, START_TRACKING_REQUEST_FLAG_MASK);
+		if(osSemaphoreAcquire(tracking_partner_semaphore, osWaitForever) == osOK)
+		{
+			if(tracking_session_id != session_id)
+			{
+				partner_session_id = session_id;
+
+				osThreadFlagsSet(tracking_control_thread_id, PARTNER_START_REQUESTED_FLAG_MASK);
+			}
+			else
+			{
+				osThreadFlagsSet(tracking_control_thread_id, UNIT_FAILURE_OCCURED_FLAG_MASK);
+			}
+			osSemaphoreRelease(tracking_partner_semaphore);
+		}
 	}
 	else
 	{
-		info1("STOP TRACKING REQUEST ISR");
+		info1("STOP TRACKING REQUEST ISR: session_id = %d", session_id);
 
-		osThreadFlagsSet(tracking_state_thread_id, STOP_TRACKING_REQUEST_FLAG_MASK);
+		osSemaphoreAcquire(tracking_partner_semaphore, osWaitForever);
+
+		const int32_t current_session_id = tracking_session_id;
+
+		osSemaphoreRelease(tracking_partner_semaphore);
+
+		if(current_session_id == session_id)
+		{
+			osThreadFlagsSet(tracking_control_thread_id, PARTNER_STOP_REQUESTED_FLAG_MASK);
+		}
+		else
+		{
+			osThreadFlagsSet(tracking_control_thread_id, UNIT_FAILURE_OCCURED_FLAG_MASK);
+		}
 	}
 	return;
 }
 
-static void on_partner_report_received_ISR(tracking_report_t const * const tracking_report)
+static void on_partner_summary_received_ISR(tracking_summary_t const * const tracking_summary)
 {
-	info1("REPORT RECEIVED ISR: %d", tracking_report->speed);
+	info1("SUMMARY RECEIVED ISR: session_id = %d | speed = %.3lf", tracking_summary->session_id, tracking_summary->speed);
+
+	osSemaphoreAcquire(tracking_partner_semaphore, osWaitForever);
+
+	if(tracking_session_id == tracking_summary->session_id)
+	{
+		partner_speed = tracking_summary->speed;
+
+		osThreadFlagsSet(tracking_control_thread_id, PARTNER_SUMMARY_RECEIVED_FLAG_MASK);
+	}
+	else
+	{
+		osThreadFlagsSet(tracking_control_thread_id, UNIT_FAILURE_OCCURED_FLAG_MASK);
+	}
+
+	osSemaphoreRelease(tracking_partner_semaphore);
 
 	return;
 }
 
-static void tracking_state_thread()
+static void on_partner_failure_occured_ISR(tracking_partner_error_t error_code)
 {
+	switch(error_code)
+	{
+		case COMMUNICATION_ERROR :
+		{
+			warn1("PARTNER COMMUNICATION FAILURE ISR");
+
+			osThreadFlagsSet(tracking_control_thread_id, UNIT_RADIO_FAILED_FLAG_MASK);
+
+			break;
+		}
+		case TRACKING_ERROR :
+		{
+			warn1("PARTNER TRACKING FAILURE ISR");
+
+			osThreadFlagsSet(tracking_control_thread_id, PARTNER_FAILURE_OCCURED_FLAG_MASK);
+
+			break;
+		}
+	}
+	return;
+}
+
+static void tracking_control_thread()
+{
+	const uint32_t waiting_flags = UNIT_MOTION_DETECTED_FLAG_MASK | UNIT_SESSION_COMPUTED_FLAG_MASK | UNIT_FAILURE_OCCURED_FLAG_MASK | UNIT_RADIO_FAILED_FLAG_MASK |
+					PARTNER_START_REQUESTED_FLAG_MASK | PARTNER_STOP_REQUESTED_FLAG_MASK | PARTNER_SUMMARY_RECEIVED_FLAG_MASK | PARTNER_FAILURE_OCCURED_FLAG_MASK;
+
     	while(true)
     	{
-		const uint32_t flags = osThreadFlagsWait(MOTION_SENSOR_FLAG_MASK | START_TRACKING_REQUEST_FLAG_MASK | STOP_TRACKING_REQUEST_FLAG_MASK, osFlagsWaitAny, osWaitForever);
+		const uint32_t flags = osThreadFlagsWait(waiting_flags, osFlagsWaitAny, osWaitForever);
 
-		if(osMutexAcquire(tracking_system_mutex, osWaitForever) == osOK)
+		bool is_tracking_failed = false;
+		bool is_failure_notification_needed = false;
+
+		const uint32_t current_time = osKernelGetTickCount();
+
+		osMutexAcquire(tracking_unit_mutex, osWaitForever);
+		osSemaphoreAcquire(tracking_partner_semaphore, osWaitForever);
 		{
-			if((flags & MOTION_SENSOR_FLAG_MASK) > 0U)
+			/*********************************************************************************/
+			// motion is detected by infrared sensor
+			/*********************************************************************************/
+			if((flags & UNIT_MOTION_DETECTED_FLAG_MASK) > 0U)
 			{
-				bool is_tracking_started;
-				tracking_session_register_motion(&tracking_session, &is_tracking_started);
+				bool is_session_active;
+				tracking_session_is_active(&tracking_session, &is_session_active);
 
-				if(is_tracking_started == true)
+				// start tracking
+				if(is_session_active == false)
 				{
-					osMessageQueueReset(radar_data_queue);
+					tracking_session_id = (int32_t)current_time;
+					partner_speed = 0.0;
+
+					osMessageQueueReset(motion_data_queue);
+
+					tracking_session_start(&tracking_session, OBJECT_MOVING_AWAY, current_time);
+					info1("TRACKING SESSION IS STARTED: session_id = %d", tracking_session_id);
 
 					fake_sensors_turn_on_radar();
-					info1("TURN ON RADAR");
+					info1("RADAR IS TURNED ON");
 
-					tracking_partner_turn_on_radar(&tracking_partner);
-					info1("START TRACKING REQUEST IS SENT");
+					if(tracking_partner_start_session(&tracking_partner, tracking_session_id) == SUCCESS)
+					{
+						info1("START TRACKING REQUEST IS SENT TO PARTNER");
+					}
+					else
+					{
+						is_tracking_failed = true;
+						info1("PARTNER COMMUNICATION FAILURE");
+					}
 				}
 				else
 				{
-					bool is_speed_detected;
-					tracking_session_is_speed_detected(&tracking_session, &is_speed_detected);
+					tracking_session_mode_t tracking_session_mode;
+					tracking_session_get_mode(&tracking_session, &tracking_session_mode);
 
-					if(is_speed_detected == false)
+					// stop tracking
+					if(tracking_session_mode == OBJECT_MOVING_TOWARD)
 					{
-						tracking_report_t tracking_report;
+						bool is_speed_completed;
+						tracking_session_is_speed_completed(&tracking_session, &is_speed_completed);
 
-						tracking_session_get_speed(&tracking_session, &tracking_report.speed);
-						info1("MEASURED SPEED: %d", tracking_report.speed);
+						tracking_session_stop(&tracking_session);
+						info1("TRACKING SESSION IS STOPPED");
 
-						tracking_partner_send_tracking_report(&tracking_partner, &tracking_report);
-						info1("TRACKING REPORT IS SENT");
+						fake_sensors_turn_off_radar();
+						info1("RADAR IS TURNED OFF");
+
+						if(is_speed_completed == false)
+						{
+							double measured_speed;
+
+							if(tracking_session_get_speed(&tracking_session, &measured_speed) == SUCCESS)
+							{
+								warn1("REPORT session_id = %d | measured_speed = %.3lf | partner_speed = %.3lf",
+									tracking_session_id, measured_speed, partner_speed);
+
+								tracking_summary_t tracking_summary;
+								tracking_summary.speed = measured_speed;
+								tracking_summary.session_id = tracking_session_id;
+
+								if(tracking_partner_send_summary(&tracking_partner, &tracking_summary) == SUCCESS)
+								{
+									info1("TRACKING SUMMARY IS SENT TO PARTNER");
+								}
+								else
+								{
+									is_tracking_failed = true;
+									info1("PARTNER COMMUNICATION FAILURE");
+								}
+							}
+							else
+							{
+								is_tracking_failed = true;
+								is_failure_notification_needed = true;
+							}
+						}
+
+						if(tracking_partner_stop_session(&tracking_partner, tracking_session_id) == SUCCESS)
+						{
+							info1("STOP TRACKING REQUEST IS SENT TO PARTNER");
+						}
+						else
+						{
+							is_tracking_failed = true;
+							info1("PARTNER COMMUNICATION FAILURE");
+						}
+						tracking_session_id = 0;
+						partner_speed = 0.0;
 					}
-					tracking_partner_turn_off_radar(&tracking_partner);
-					info1("STOP TRACKING REQUEST IS SENT");
-
-					fake_sensors_turn_off_radar();
-					info1("TURN OFF RADAR");
+					// tracking error occured
+					else
+					{
+						is_tracking_failed = true;
+						is_failure_notification_needed = true;
+					}
 				}
 			}
-			if((flags & STOP_TRACKING_REQUEST_FLAG_MASK) > 0U)
+
+			/*********************************************************************************/
+			// tracking is finished -> send summary to partner
+			/*********************************************************************************/
+			if((flags & UNIT_SESSION_COMPUTED_FLAG_MASK) > 0U)
 			{
+				fake_sensors_turn_off_radar();
+				info1("RADAR IS TURNED OFF");
+
+				double measured_speed;
+
+				if(tracking_session_get_speed(&tracking_session, &measured_speed) == SUCCESS)
+				{
+					tracking_summary_t tracking_summary;
+					tracking_summary.speed = measured_speed;
+					tracking_summary.session_id = tracking_session_id;
+
+					if(tracking_partner_send_summary(&tracking_partner, &tracking_summary) == SUCCESS)
+					{
+						info1("TRACKING SUMMARY IS SENT TO PARTNER");
+					}
+					else
+					{
+						is_tracking_failed = true;
+						info1("PARTNER COMMUNICATION FAILURE");
+					}
+				}
+				else
+				{
+					is_tracking_failed = true;
+					is_failure_notification_needed = true;
+				}
+			}
+
+			/*********************************************************************************/
+			// tracking failure occured -> stop tracking session and inform partner
+			/*********************************************************************************/
+			if((flags & UNIT_FAILURE_OCCURED_FLAG_MASK) > 0U)
+			{
+				is_tracking_failed = true;
+				is_failure_notification_needed = true;
+			}
+
+			/*********************************************************************************/
+			// radio communication error occured -> just stop tracking session
+			/*********************************************************************************/
+			if((flags & UNIT_RADIO_FAILED_FLAG_MASK) > 0U)
+			{
+				is_tracking_failed = true;
+			}
+
+			/*********************************************************************************/
+			// start tracking request received from partner
+			/*********************************************************************************/
+			if((flags & PARTNER_START_REQUESTED_FLAG_MASK) > 0U)
+			{
+				bool is_session_active;
+				tracking_session_is_active(&tracking_session, &is_session_active);
+
+				// start tracking
+				if(is_session_active == false)
+				{
+					tracking_session_id = partner_session_id;
+					partner_speed = 0.0;
+
+					tracking_session_start(&tracking_session, OBJECT_MOVING_TOWARD, current_time);
+					info1("TRACKING SESSION IS STARTED: session_id = %d", tracking_session_id);
+
+					osMessageQueueReset(motion_data_queue);////////////////////////////////////
+					fake_sensors_turn_on_radar();
+					info1("RADAR IS TURNED ON");
+				}
+				// tracking error occured
+				else
+				{
+					is_tracking_failed = true;
+					is_failure_notification_needed = true;
+				}
+			}
+
+			/*********************************************************************************/
+			// stop tracking request received from partner
+			/*********************************************************************************/
+			if((flags & PARTNER_STOP_REQUESTED_FLAG_MASK) > 0U)
+			{
+				bool is_session_active;
+				tracking_session_is_active(&tracking_session, &is_session_active);
+
+				tracking_session_mode_t tracking_session_mode;
+				tracking_session_get_mode(&tracking_session, &tracking_session_mode);
+
+				bool is_speed_completed;
+				tracking_session_is_speed_completed(&tracking_session, &is_speed_completed);
+
+				// stop tracking
+				if((is_session_active == true) && (tracking_session_mode == OBJECT_MOVING_AWAY) && (is_speed_completed == true))
+				{
+					double measured_speed;
+					tracking_session_get_speed(&tracking_session, &measured_speed);
+					warn1("REPORT session_id = %d | measured_speed = %.3lf | partner_speed = %.3lf",
+						tracking_session_id, measured_speed, partner_speed);
+
+					tracking_session_id = 0;
+					partner_speed = 0.0;
+
+					tracking_session_stop(&tracking_session);
+					info1("TRACKING SESSION IS STOPPED");
+
+					fake_sensors_turn_off_radar();
+					info1("RADAR IS TURNED OFF");
+				}
+				// tracking error occured
+				else
+				{
+					is_tracking_failed = true;
+					is_failure_notification_needed = true;
+				}
+			}
+
+			/*********************************************************************************/
+			// stop tracking request received
+			/*********************************************************************************/
+			if((flags & PARTNER_SUMMARY_RECEIVED_FLAG_MASK) > 0U)
+			{
+				info1("PARTNER SUMMARY RECEIVED");
+			}
+
+			/*********************************************************************************/
+			// partner sent a failure message -> just stop tracking session
+			/*********************************************************************************/
+			if((flags & PARTNER_FAILURE_OCCURED_FLAG_MASK) > 0U)
+			{
+				is_tracking_failed = true;
+			}
+
+			/*********************************************************************************/
+			// tracking error occured
+			/*********************************************************************************/
+			if(is_tracking_failed == true)
+			{
+				info1("TRACKING FAILURE OCCURED");
+
+				tracking_session_id = 0;
+				partner_speed = 0.0;
+
 				tracking_session_stop(&tracking_session);
+				info1("TRACKING SESSION IS STOPPED");
 
 				fake_sensors_turn_off_radar();
-				info1("TURN OFF RADAR");
-			}
-			if((flags & START_TRACKING_REQUEST_FLAG_MASK) > 0U)
-			{
-				osMessageQueueReset(radar_data_queue);
+				info1("RADAR IS TURNED OFF");
 
-				tracking_session_start(&tracking_session);
-
-				fake_sensors_turn_on_radar();
-				info1("TURN ON RADAR");
+				if(is_failure_notification_needed == true)
+				{
+					if(tracking_partner_send_failure(&tracking_partner, tracking_session_id) == SUCCESS)
+					{
+						info1("TRACKING FAILURE IS SENT TO PARTNER");
+					}
+					else
+					{
+						info1("PARTNER COMMUNICATION FAILURE");
+					}
+				}
 			}
-			osMutexRelease(tracking_system_mutex);
+		}
+		osSemaphoreRelease(tracking_partner_semaphore);
+		osMutexRelease(tracking_unit_mutex);
+
+		// need to wait a little bit after failure
+		if(is_tracking_failed == true)
+		{
+			osDelay(MAX_TIME_IN_MOVING_AWAY_MODE_MIL_SEC);
+
+			osThreadFlagsClear(flags);	
 		}
     	}
 	return;
 }
 
 
-static void on_radar_data_received_ISR(radar_data_t const * const radar_data)
+static void on_motion_data_received_ISR(motion_data_t const * const motion_data)
 {
-	info1("RADAR DATA ISR: %d / %d", radar_data->speed, radar_data->energy);
+	info1("RADAR DATA ISR: %.3lf / %.3lf", motion_data->speed, motion_data->energy);
 
-	osMessageQueuePut(radar_data_queue, (void*)radar_data, 0U, 0U);
+	osMessageQueuePut(motion_data_queue, (void*)motion_data, 0U, 0U);
 
 	return;
 }
 
-static void speed_calculation_thread()
+static void speed_detection_thread()
 {
     	while(true)
     	{
-		radar_data_t radar_data;
+		motion_data_t motion_data;
 
-		if(osMessageQueueGet(radar_data_queue, &radar_data, NULL, osWaitForever) == osOK) 
+		if(osMessageQueueGet(motion_data_queue, &motion_data, NULL, osWaitForever) == osOK) 
 		{
-			if(osMutexAcquire(tracking_system_mutex, osWaitForever) == osOK)
+			if(osMutexAcquire(tracking_unit_mutex, osWaitForever) == osOK)
 			{
-				tracking_session_add_radar_data(&tracking_session, &radar_data);
+				const uint32_t current_time = osKernelGetTickCount();
 
-				bool is_speed_detected;
-				tracking_session_is_speed_detected(&tracking_session, &is_speed_detected);
+				tracking_session_add_motion_data(&tracking_session, &motion_data, current_time);
 
-				if(is_speed_detected == true)
+				bool is_speed_completed;
+				tracking_session_is_speed_completed(&tracking_session, &is_speed_completed);
+
+				osMutexRelease(tracking_unit_mutex);
+
+				if(is_speed_completed == true)
 				{
-					tracking_report_t tracking_report;
-
-					tracking_session_get_speed(&tracking_session, &tracking_report.speed);
-					info1("MEASURED SPEED: %d", tracking_report.speed);
-
-					tracking_partner_send_tracking_report(&tracking_partner, &tracking_report);
-					info1("TRACKING REPORT IS SENT");
-
-					fake_sensors_turn_off_radar();
-					info1("TURN OFF RADAR");
+					osThreadFlagsSet(tracking_control_thread_id, UNIT_SESSION_COMPUTED_FLAG_MASK);
 				}
-
-				osMutexRelease(tracking_system_mutex);
 			}
 		}
     	}
@@ -213,6 +513,56 @@ static void on_button_pushed_ISR()
 
 static void main_thread()
 {
+	// init tracking
+	{
+		// define radio addresses
+		const am_addr_t partner_address = DESTINATION_GATEWAY_ADDRESS;
+		const am_id_t partner_port = AM_ID;
+
+		am_addr_t radio_address = DEFAULT_AM_ADDR;
+
+	    	if(sigInit() == SIG_GOOD)
+		{
+			radio_address = sigGetNodeId();
+		}
+		warn1("RADIO ADDR:%" PRIX16 " PARTNER ADDR:%" PRIX16, radio_address, partner_address);
+
+		// init embedded radio-antenna
+		comms_layer_t *radio = radio_setup(radio_address);
+
+		if(radio == NULL)
+		{
+        		err1("radio init error");
+
+        		while(true); // panic
+    		}
+
+		// init tracking session
+		tracking_session_init(&tracking_session);
+
+		// init tracking partner
+		tracking_partner_init(&tracking_partner, on_partner_tracking_requested_ISR, on_partner_summary_received_ISR, on_partner_failure_occured_ISR);
+		int result = tracking_partner_setup_radio_network(&tracking_partner, radio, partner_address, partner_port);
+
+		if(result != SUCCESS)
+		{
+        		err1("tracking partner init error");
+
+        		while(true); // panic
+    		}
+
+		// init tracking sensors
+		result = fake_sensors_init(on_sensor_movement_detetcted_ISR, on_motion_data_received_ISR);
+
+		if(result != SUCCESS)
+		{
+        		err1("sensors init error");
+
+        		while(true); // panic
+    		}
+	}
+
+	// main loop
     	while(true)
     	{
 		osThreadFlagsWait(PUSH_BUTTON_MASK, osFlagsWaitAny, osWaitForever);
@@ -221,29 +571,21 @@ static void main_thread()
 
 		// just debug
 		{
-			int32_t average_speed;
+			double average_speed;
 
 			if(tracking_session_get_speed(&tracking_session, &average_speed) == SUCCESS)
 			{
 				for(uint8_t i = 0U; i < tracking_session.speed_calculator.speed_size; ++i)
 				{
-					info1("SPEED ARRAY[%d] = %d", i, tracking_session.speed_calculator.speed[i]);
+					info1("SPEED ARRAY[%d] = %.3lf", i, tracking_session.speed_calculator.speed[i]);
 				}
-				info1("AVERAGE SPEED = %d", average_speed);
+				info1("AVERAGE SPEED = %.3lf", average_speed);
 			}
 		}
 
 		osDelay(3000);
     	}
 	return;
-}
-
-
-int logger_fwrite_boot (const char *ptr, int len)
-{
-    	fwrite(ptr, len, 1, stdout);
-    	fflush(stdout);
-    	return len;
 }
 
 
@@ -265,32 +607,28 @@ int main()
 	// Initialize OS kernel
 	osKernelInitialize();
 
-	// Create main thread
-	const osThreadAttr_t main_thread_attr = { .name = "main" };
-	main_thread_id = osThreadNew(main_thread, NULL, &main_thread_attr);
-
-	tracking_session_init(&tracking_session);
-
 	// Create tracking state thread
 	{
-		const osThreadAttr_t tracking_state_thread_attr = { .name = "tracking_state" };
-		tracking_state_thread_id = osThreadNew(tracking_state_thread, NULL, &tracking_state_thread_attr);
+		tracking_unit_mutex = osMutexNew(NULL);
+		tracking_partner_semaphore = osSemaphoreNew(1U, 1U, NULL);
+
+		const osThreadAttr_t tracking_control_thread_attr = { .name = "tracking_control" };
+		tracking_control_thread_id = osThreadNew(tracking_control_thread, NULL, &tracking_control_thread_attr);
 	}
 
 	// Create speed calculation thread
 	{
-		radar_data_queue = osMessageQueueNew(16U, sizeof(radar_data_t), NULL);
+		motion_data_queue = osMessageQueueNew(32U, sizeof(motion_data_t), NULL);
 
-		const osThreadAttr_t speed_calc_thread_attr = { .name = "speed_calculation" };
-		speed_calculation_thread_id = osThreadNew(speed_calculation_thread, NULL, &speed_calc_thread_attr);
+		const osThreadAttr_t speed_calc_thread_attr = { .name = "speed_detection" };
+		speed_detection_thread_id = osThreadNew(speed_detection_thread, NULL, &speed_calc_thread_attr);
 	}
-	tracking_system_mutex = osMutexNew(NULL);
 
-
-	tracking_partner_init(&tracking_partner, on_partner_tracking_requested_ISR, on_partner_report_received_ISR);
-
-	fake_sensors_init(on_sensor_movement_detetcted_ISR, on_radar_data_received_ISR);
-
+	// Create main thread
+	{
+		const osThreadAttr_t main_thread_attr = { .name = "main" };
+		main_thread_id = osThreadNew(main_thread, NULL, &main_thread_attr);
+	}
 
     	if (osKernelReady == osKernelGetState())
     	{
@@ -309,5 +647,46 @@ int main()
     	while(true);
 
 	return 0;
+}
+
+
+
+static void radio_start_done(comms_layer_t * comms, comms_status_t status, void *user)
+{
+	debug("radio started %d", status);
+
+	return;
+}
+
+comms_layer_t* radio_setup(am_addr_t radio_address)
+{
+	comms_layer_t *radio = radio_init(DEFAULT_RADIO_CHANNEL, PAN_ID, radio_address);
+
+	if(radio == NULL)
+	{
+		return NULL;
+	}
+
+	if(comms_start(radio, radio_start_done, NULL) != COMMS_SUCCESS)
+	{
+		return NULL;
+	}
+
+	// Wait for radio to start, could use osTreadFlagWait and set from callback
+	while(comms_status(radio) != COMMS_STARTED)
+	{
+		osDelay(1);
+	}
+    	debug1("radio rdy");
+
+	return radio;
+}
+
+int logger_fwrite_boot(const char *ptr, int len)
+{
+    	fwrite(ptr, len, 1, stdout);
+    	fflush(stdout);
+
+    	return len;
 }
 
