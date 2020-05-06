@@ -1,8 +1,8 @@
 #include "tracking_partner.h"
 
 #include "loglevels.h"
-#define __MODUUL__ "partner_system"
-#define __LOG_LEVEL__ (LOG_LEVEL_sensor_sim & BASE_LOG_LEVEL)
+#define __MODUUL__ "tracking_partner"
+#define __LOG_LEVEL__ (LOG_LEVEL_tracking_partner)
 #include "log.h"
 
 #include "radio_socket.h"
@@ -30,9 +30,9 @@ static void tracking_partner_catch_sending_error(void *user_data);
 static void tracking_partner_receive_command(radio_message_t const * const raw_message, uint8_t data_size, void *user_data);
 
 void tracking_partner_init(tracking_partner_t * const tracking_partner,
-				tracking_session_state_set_f set_session_state_callback,
-				tracking_summary_process_f process_summary_callback,
-				tracking_failure_catch_f catch_failure_callback)
+				tracking_session_state_set_t set_session_state_callback,
+				tracking_summary_process_t process_summary_callback,
+				tracking_failure_catch_t catch_failure_callback)
 {
 	tracking_partner->set_session_state_callback = set_session_state_callback;
 	tracking_partner->process_summary_callback = process_summary_callback;

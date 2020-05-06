@@ -53,3 +53,7 @@
 	path = zoo/prolab.dt-types
 	url = https://github.com/proactivity-lab/dt-types.git
 	branch = master
+[submodule "zoo/mw_vehicle_detection"]
+	path = zoo/mw_vehicle_detection
+	url = https://bitbucket.org/prolab/mw_vehicle_detection.git
+	branch = refactor

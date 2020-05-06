@@ -3,8 +3,8 @@
 #include "serial_hdlc.h"
 
 #include "loglevels.h"
-#define __MODUUL__ "serial_data_receiver"
-#define __LOG_LEVEL__ (LOG_LEVEL_sensor_sim & BASE_LOG_LEVEL)
+#define __MODUUL__ "serial_receiver"
+#define __LOG_LEVEL__ (LOG_LEVEL_serial_receiver)
 #include "log.h"
 
 #include "result.h"

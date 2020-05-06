@@ -4,10 +4,11 @@
 
 #include "loglevels.h"
 #define __MODUUL__ "radio_socket"
-#define __LOG_LEVEL__ (LOG_LEVEL_sensor_sim & BASE_LOG_LEVEL)
+#define __LOG_LEVEL__ (LOG_LEVEL_radio_socket)
 #include "log.h"
 
 #include "result.h"
+
 
 typedef struct socket_user_data
 {
@@ -108,16 +109,13 @@ int radio_socket_send_message(radio_socket_t * const radio_socket, uint8_t data_
 
 				if(comms_send(radio_socket->comms_radio, &radio_socket->comms_message, radio_socket_message_sent, (void*)radio_socket) == COMMS_SUCCESS)
 				{
-					logger(LOG_DEBUG1, "snd %u", result);
-
 					return SUCCESS;
 				}
 			}
 		}
 	}
 	// error occured
-	logger(LOG_WARN1, "snd %u", result);
-	err1("pckt");
+	err1("send error");
 
 	return FAILURE;
 }

@@ -1,5 +1,7 @@
 #include "tracking_session.h"
 
+#include "result.h"
+
 
 void tracking_session_init(tracking_session_t * const tracking_session)
 {
@@ -15,31 +17,28 @@ void tracking_session_init(tracking_session_t * const tracking_session)
 
 void tracking_session_start(tracking_session_t * const tracking_session,
 				tracking_session_mode_t tracking_mode,
-				uint32_t current_time)
+				uint32_t current_time,
+				uint32_t max_time_length)
 {
+	tracking_session->start_time = current_time;
+	tracking_session->end_time = tracking_session->start_time + max_time_length;
+
+	tracking_session->is_speed_completed = false;
+	tracking_session->is_active = true;
+
 	switch(tracking_mode)
 	{
 		case OBJECT_MOVING_AWAY :
 		{
 			speed_calculator_start_in_moving_away_mode(&tracking_session->speed_calculator);
-			tracking_session->start_time = current_time;
-			tracking_session->end_time = current_time + MAX_TIME_IN_MOVING_AWAY_MODE_MIL_SEC;
-
 			tracking_session->mode = OBJECT_MOVING_AWAY;
-			tracking_session->is_speed_completed = false;
-			tracking_session->is_active = true;
 
 			break;
 		}
 		case OBJECT_MOVING_TOWARD :
 		{
 			speed_calculator_start_in_moving_toward_mode(&tracking_session->speed_calculator);
-			tracking_session->start_time = current_time;
-			tracking_session->end_time = current_time + MAX_TIME_IN_MOVING_TOWARD_MODE_MIL_SEC;
-
 			tracking_session->mode = OBJECT_MOVING_TOWARD;
-			tracking_session->is_speed_completed = false;
-			tracking_session->is_active = true;
 
 			break;
 		}
@@ -48,6 +47,14 @@ void tracking_session_start(tracking_session_t * const tracking_session,
 			tracking_session_stop(tracking_session);
 		}
 	}
+	return;
+}
+
+void tracking_session_set_max_length(tracking_session_t * const tracking_session,
+					uint32_t max_time_length)
+{
+	tracking_session->end_time = tracking_session->start_time + max_time_length;
+
 	return;
 }
 
@@ -111,6 +118,17 @@ void tracking_session_is_speed_completed(tracking_session_t * const tracking_ses
 int tracking_session_get_speed(tracking_session_t const * const tracking_session,
 				double * const speed)
 {
-	return speed_calculator_get_average_speed(&tracking_session->speed_calculator, speed);
+	*speed = 0.0;
+
+	bool is_speed_computed;
+	speed_calculator_is_computed(&tracking_session->speed_calculator, &is_speed_computed);
+
+	if(is_speed_computed == true)
+	{
+		speed_calculator_get_average_speed(&tracking_session->speed_calculator, speed);
+
+		return SUCCESS;
+	}
+	return FAILURE;
 }
 

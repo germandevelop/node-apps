@@ -78,10 +78,9 @@ SW_PATCH_VERSION        := $(VERSION_PATCH)
 BUILD_TIMESTAMP         := $(shell date '+%s')
 IDENT_TIMESTAMP         := $(BUILD_TIMESTAMP)
 
-MW_CONVERTER_DIR       	:= mw_vehicle_detection
-
 # NODE_PLATFORM_DIR is used by targets to add components to INCLUDES and SOURCES
 NODE_PLATFORM_DIR       := $(ZOO)/thinnect.node-platform
+MW_CONVERTER_DIR       	:= $(ZOO)/mw_vehicle_detection
 
 # ______________ Build components - sources and includes _______________________
 
