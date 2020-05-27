@@ -92,7 +92,9 @@ SOURCES += radio_socket.c
 SOURCES += tracking_partner.c
 SOURCES += tracking_partner.mapper.c
 SOURCES += tracking_session.c
+SOURCES += object_tracking.c
 SOURCES += speed_calculator.c
+SOURCES += tracking_unit.c
 SOURCES += microwave_motion_converter.c
 
 SOURCES += $(MW_CONVERTER_DIR)/src/FFT.c

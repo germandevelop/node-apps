@@ -14,8 +14,10 @@ static void speed_calculator_append_measurements_in_moving_away_mode(speed_calcu
 static void speed_calculator_append_measurements_in_moving_toward_mode(speed_calculator_t * const speed_calculator,
 									motion_data_t const * const motion_data);
 
-void speed_calculator_init(speed_calculator_t * const speed_calculator)
+void speed_calculator_init(speed_calculator_t * const speed_calculator, double pass_detection_threshold)
 {
+	speed_calculator->pass_detection_threshold = pass_detection_threshold;
+
 	speed_calculator->speed_size = 0U;
 	speed_calculator->energy_size = 0U;
 
@@ -100,13 +102,13 @@ void speed_calculator_append_measurements_in_moving_away_mode(speed_calculator_t
 
 			// try to detect "pass detection border"
 			// if border is detected -> start speed data collecting
-			if(speed_calculator->energy[last_idx] <= PASS_DETECTION_THRESHOLD)
+			if(speed_calculator->energy[last_idx] <= speed_calculator->pass_detection_threshold)
 			{
 				bool is_energy_decreased = true;
 
 				for(uint8_t i = 0U; i < last_idx; ++i)
 				{
-					if(speed_calculator->energy[i] <= PASS_DETECTION_THRESHOLD)
+					if(speed_calculator->energy[i] <= speed_calculator->pass_detection_threshold)
 					{
 						is_energy_decreased = false;
 
@@ -169,13 +171,13 @@ void speed_calculator_append_measurements_in_moving_toward_mode(speed_calculator
 
 			// try to detect "pass detection border"
 			// if border is detected -> stop calculation process
-			if(speed_calculator->energy[last_idx] > PASS_DETECTION_THRESHOLD)
+			if(speed_calculator->energy[last_idx] > speed_calculator->pass_detection_threshold)
 			{
 				bool is_energy_increased = true;
 
 				for(uint8_t i = 0U; i < last_idx; ++i)
 				{
-					if(speed_calculator->energy[i] > PASS_DETECTION_THRESHOLD)
+					if(speed_calculator->energy[i] > speed_calculator->pass_detection_threshold)
 					{
 						is_energy_increased = false;
 

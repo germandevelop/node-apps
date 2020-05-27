@@ -15,10 +15,13 @@ void mapper_convert_session_to_command(int32_t command_id,
 {
 	command->id = command_id;
 
-	command->argument_list[0].type = dt_frame;
-	command->argument_list[0].value = tracking_session_id;
+	uint8_t i = 0U;
 
-	command->argument_count = 1U;
+	command->argument_list[i].type = dt_frame;
+	command->argument_list[i].value = tracking_session_id;
+	++i;
+
+	command->argument_count = i;
 
 	return;
 }
@@ -56,13 +59,17 @@ void mapper_convert_summary_to_command(int32_t command_id,
 {
 	command->id = command_id;
 
-	command->argument_list[0].type = dt_frame;
-	command->argument_list[0].value = tracking_summary->session_id;
+	uint8_t i = 0U;
 
-	command->argument_list[1].type = dt_speed_kmh;
-	command->argument_list[1].value = (int32_t)(tracking_summary->speed * 1000.0);
+	command->argument_list[i].type = dt_frame;
+	command->argument_list[i].value = tracking_summary->session_id;
+	++i;
 
-	command->argument_count = 2U;
+	command->argument_list[i].type = dt_speed_kmh;
+	command->argument_list[i].value = (int32_t)(tracking_summary->speed * 1000.0);
+	++i;
+
+	command->argument_count = i;
 
 	return;
 }

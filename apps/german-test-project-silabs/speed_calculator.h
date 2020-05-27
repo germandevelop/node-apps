@@ -3,8 +3,7 @@
 
 // CONFIGURABLE VALUES
 /************************************************************************************************/
-#define SPEED_DETECTION_WINDOW 12U
-#define PASS_DETECTION_THRESHOLD 0.400
+#define SPEED_DETECTION_WINDOW 10U
 /************************************************************************************************/
 
 #include <stdint.h>
@@ -14,6 +13,8 @@ typedef struct motion_data motion_data_t;
 
 typedef struct speed_calculator
 {
+	double pass_detection_threshold;
+
 	double energy[4]; // [2 - 4]
 	uint8_t energy_size;
 
@@ -26,7 +27,7 @@ typedef struct speed_calculator
 
 } speed_calculator_t;
 
-void speed_calculator_init(speed_calculator_t * const speed_calculator);
+void speed_calculator_init(speed_calculator_t * const speed_calculator, double pass_detection_threshold);
 
 void speed_calculator_start_in_moving_away_mode(speed_calculator_t * const speed_calculator);
 void speed_calculator_start_in_moving_toward_mode(speed_calculator_t * const speed_calculator);
