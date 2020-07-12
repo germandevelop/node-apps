@@ -57,3 +57,6 @@
 	path = zoo/mw_vehicle_detection
 	url = https://bitbucket.org/prolab/mw_vehicle_detection.git
 	branch = refactor
+[submodule "zoo/unity.unit-tests"]
+	path = zoo/unity.unit-tests
+	url = https://github.com/ThrowTheSwitch/Unity
