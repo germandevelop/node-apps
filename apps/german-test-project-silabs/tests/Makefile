@@ -38,7 +38,7 @@ generate_test_runners:
 	ruby $(UNITY_ROOT)/auto/generate_test_runner.rb ./object_tracking.test.c $(RUNNER_DIR)/object_tracking.test_runner.c
 
 clean:
-	rm -r $(BUILD_DIR)
+	rm -rf $(BUILD_DIR)
 
 ci: CFLAGS += -Werror
 ci: default
