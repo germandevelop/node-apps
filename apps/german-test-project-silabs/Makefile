@@ -65,7 +65,7 @@ SILABS_SDKDIR           ?= $(HOME)/SimplicityStudio_v4/developer/sdks/gecko_sdk_
 
 BUILD_DIR                = $(BUILD_BASE_DIR)/$(BUILD_TARGET)
 BUILDSYSTEM_DIR         := $(ZOO)/thinnect.node-buildsystem/make
-PLATFORMS_DIRS          := $(ZOO)/thinnect.node-buildsystem/make $(ZOO)/thinnect.dev-platforms/make
+PLATFORMS_DIRS          := $(ZOO)/thinnect.node-buildsystem/make $(ZOO)/thinnect.dev-platforms/make $(ZOO)/smenete-platforms/make
 PHONY_GOALS             := all clean
 TARGETLESS_GOALS        += clean
 UUID_APPLICATION        := d709e1c5-496a-4d31-8957-f389d7fdbb71
@@ -84,24 +84,25 @@ MW_CONVERTER_DIR       	:= $(ZOO)/mw_vehicle_detection
 
 # ______________ Build components - sources and includes _______________________
 
+ifneq ($(filter smnt-mb,$(MAKECMDGOALS)),)
+
+else
+	CFLAGS += -DUSE_SENSORS_SIMULATOR
+
+	SOURCES += fake_sensors.c
+	SOURCES += serial_receiver.c
+endif
+
 SOURCES += main.c
-SOURCES += platform_push_button.c
-SOURCES += fake_sensors.c
-SOURCES += serial_receiver.c
 SOURCES += radio_socket.c
 SOURCES += tracking_partner.c
 SOURCES += tracking_partner.mapper.c
 SOURCES += tracking_session.c
 SOURCES += object_tracking.c
 SOURCES += speed_calculator.c
+SOURCES += tracking_sensors.c
 SOURCES += tracking_unit.c
-SOURCES += microwave_motion_converter.c
 
-SOURCES += $(MW_CONVERTER_DIR)/src/FFT.c
-SOURCES += $(MW_CONVERTER_DIR)/src/signal_normalizer.c
-SOURCES += $(MW_CONVERTER_DIR)/src/vehicle_speed_detector.c
-
-INCLUDES += -I$(MW_CONVERTER_DIR)/include
 
 # Use JTAG uart for logging, because opening JTAG port resets device momentarily
 CFLAGS += -DLOG_USE_JTAG_UART
@@ -138,6 +139,9 @@ INCLUDES += \
     -I$(SILABS_SDKDIR)/platform/halconfig/inc/hal-config \
     -I$(SILABS_SDKDIR)/platform/emlib/inc \
     -I$(SILABS_SDKDIR)/platform/emdrv/sleep/inc \
+    -I$(SILABS_SDKDIR)/platform/emdrv/dmadrv/inc \
+    -I$(SILABS_SDKDIR)/platform/emdrv/dmadrv/config \
+    -I$(SILABS_SDKDIR)/platform/emdrv/common/inc \
     -I$(SILABS_SDKDIR)/platform/emdrv/gpiointerrupt/inc \
     -I$(SILABS_SDKDIR)/platform/radio/rail_lib/hal \
     -I$(SILABS_SDKDIR)/platform/radio/rail_lib/common \
@@ -164,6 +168,7 @@ SOURCES += \
     $(SILABS_SDKDIR)/platform/emlib/src/em_timer.c \
     $(SILABS_SDKDIR)/platform/emlib/src/em_wdog.c \
     $(SILABS_SDKDIR)/platform/emdrv/sleep/src/sleep.c \
+    $(SILABS_SDKDIR)/platform/emdrv/dmadrv/src/dmadrv.c \
     $(SILABS_SDKDIR)/platform/emdrv/gpiointerrupt/src/gpiointerrupt.c \
     $(SILABS_SDKDIR)/platform/radio/rail_lib/hal/hal_common.c \
     $(NODE_PLATFORM_DIR)/silabs/radio_rtos.c \
@@ -171,25 +176,24 @@ SOURCES += \
     $(NODE_PLATFORM_DIR)/common/sys_panic.c \
 
 # logging
-#CFLAGS += -DLOGGER_TIMESTAMP
-CFLAGS  += -DLOGGER_FWRITE
-SOURCES += $(NODE_PLATFORM_DIR)/silabs/logger_fwrite.c
-#CFLAGS  += -DLOGGER_LDMA_BUFFER_LENGTH=16384
-#CFLAGS  += -DLOGGER_LDMA
-#SOURCES += $(NODE_PLATFORM_DIR)/silabs/logger_ldma.c
-SOURCES += $(ZOO)/thinnect.lll/logging/loggers_ext.c
-INCLUDES += -I$(ZOO)/thinnect.lll/logging
+ifneq ($(filter Lsmnt-mb,$(MAKECMDGOALS)),)
+	CFLAGS  += -DLOGGER_LDMA -DLOGGER_LDMA_DMADRV
+	SOURCES += $(NODE_PLATFORM_DIR)/silabs/logger_ldma.c
+	SOURCES += $(ZOO)/thinnect.lll/logging/loggers_ext.c
+	INCLUDES += -I$(ZOO)/thinnect.lll/logging
+else
+	CFLAGS  += -DLOGGER_FWRITE
+	SOURCES += $(NODE_PLATFORM_DIR)/silabs/logger_fwrite.c
+	SOURCES += $(ZOO)/thinnect.lll/logging/loggers_ext.c
+	INCLUDES += -I$(ZOO)/thinnect.lll/logging
+endif
+
 
 # device signature
 INCLUDES += -I$(ZOO)/thinnect.device-signature/signature \
             -I$(ZOO)/thinnect.device-signature/area
 SOURCES  += $(ZOO)/thinnect.device-signature/signature/DeviceSignature.c \
             $(ZOO)/thinnect.device-signature/area/silabs/SignatureArea.c
-
-# serial layer
-SOURCES  += $(NODE_PLATFORM_DIR)/common/serial_protocol.c
-SOURCES  += $(NODE_PLATFORM_DIR)/common/hdlc_tools.c
-SOURCES  += $(NODE_PLATFORM_DIR)/silabs/serial_hdlc.c
 
 # Generally useful external tools
 INCLUDES += -I$(ZOO)/lammertb.libcrc/include \
@@ -203,6 +207,28 @@ SOURCES += $(wildcard $(ZOO)/thinnect.mist-comm/am/*.c) \
            $(wildcard $(ZOO)/thinnect.mist-comm/api/*.c) \
            $(wildcard $(ZOO)/thinnect.mist-comm/routing/*.c) \
            $(wildcard $(ZOO)/thinnect.mist-comm/cmsis/*.c)
+
+# Microwave sensor
+ifneq ($(filter smnt-mb,$(MAKECMDGOALS)),)
+
+    	SOURCES += $(ZOO)/smenete-platforms/src/boards/smnt-mb/mw_setup_sm3.c
+
+	INCLUDES += -I$(ZOO)/mw_vehicle_detection/include
+	INCLUDES += -I$(ZOO)/mw_vehicle_detection/include/sensor
+	SOURCES += $(ZOO)/mw_vehicle_detection/src/signal_normalizer.c
+	SOURCES += $(ZOO)/mw_vehicle_detection/src/FFT.c
+	SOURCES += $(ZOO)/mw_vehicle_detection/src/vehicle_speed_detector.c
+	SOURCES += $(ZOO)/mw_vehicle_detection/src/sensor/mw_vehicle_sensor.c
+
+	# DMA ADC
+	INCLUDES += -I$(ZOO)/dmadrv-adc/include/silabs
+	SOURCES += $(ZOO)/dmadrv-adc/src/silabs/adc_dmadrv.c
+else
+	# serial layer
+	SOURCES  += $(NODE_PLATFORM_DIR)/common/serial_protocol.c
+	SOURCES  += $(NODE_PLATFORM_DIR)/common/hdlc_tools.c
+	SOURCES  += $(NODE_PLATFORM_DIR)/silabs/serial_hdlc.c
+endif
 
 # platform stuff - watchdog, io etc...
 INCLUDES += -I$(NODE_PLATFORM_DIR)/include

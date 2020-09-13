@@ -27,8 +27,6 @@
 #include "incbin.h"
 INCBIN(Header, "header.bin");
 
-
-#include "platform_push_button.h"
 #include "tracking_unit.h"
 #include "result.h"
 
@@ -47,22 +45,11 @@ INCBIN(Header, "header.bin");
 /************************************************************************************************/
 
 
-
-#define PUSH_BUTTON_MASK 0B00000001
-
-
 static osThreadId_t main_thread_id;
 
 
 static comms_layer_t* radio_setup(am_addr_t radio_address);
 static int logger_fwrite_boot(const char *ptr, int len);
-
-static void on_button_pushed_ISR()
-{
-	osThreadFlagsSet(main_thread_id, PUSH_BUTTON_MASK);
-
-	return;
-}
 
 static void main_thread()
 {
@@ -112,11 +99,9 @@ static void main_thread()
 	// main loop
     	while(true)
     	{
-		osThreadFlagsWait(PUSH_BUTTON_MASK, osFlagsWaitAny, osWaitForever);
+		info1("MAIN THREAD");
 
-		info1("MAIN THREAD: BUTTON PUSHED");
-
-		osDelay(3000);
+		osDelay(10000);
     	}
 	return;
 }
@@ -128,7 +113,6 @@ int main()
 	PLATFORM_Init();
 
     	PLATFORM_LedsInit();
-	PLATFORM_PushButtonInit(on_button_pushed_ISR);
 	PLATFORM_RadioInit(); // Radio GPIO/PRS - LNA on some MGM12P
 
     	// Configure debug output

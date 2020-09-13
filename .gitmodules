@@ -60,3 +60,9 @@
 [submodule "zoo/unity.unit-tests"]
 	path = zoo/unity.unit-tests
 	url = https://github.com/ThrowTheSwitch/Unity
+[submodule "zoo/smenete-platforms"]
+	path = zoo/smenete-platforms
+	url = git@bitbucket.org:prolab/smenete-platforms.git
+[submodule "zoo/dmadrv-adc"]
+	path = zoo/dmadrv-adc
+	url = https://github.com/proactivity-lab/dmadrv-adc.git

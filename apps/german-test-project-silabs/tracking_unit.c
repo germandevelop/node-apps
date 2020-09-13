@@ -8,10 +8,10 @@
 #include "log.h"
 
 #include "tracking_partner.h"
+#include "tracking_sensors.h"
 #include "tracking_session.h"
 #include "object_tracking.h"
 #include "tracking_summary.h"
-#include "fake_sensors.h"
 #include "motion_data.h"
 #include "result.h"
 
@@ -91,7 +91,7 @@ int tracking_unit_init(tracking_config_t const * const tracking_config)
     	}
 
 	// init tracking sensors
-	result = fake_sensors_init(on_sensor_movement_detetcted_ISR, on_motion_data_received_ISR);
+	result = tracking_sensors_init(on_sensor_movement_detetcted_ISR, on_motion_data_received_ISR);
 
 	if(result != SUCCESS)
 	{
@@ -285,7 +285,7 @@ void tracking_control_thread()
 					object_tracking_start(&object_tracking, OBJECT_MOVING_AWAY, current_time, max_session_time_in_moving_away_mode);
 					warn1("OBJECT TRACKING MAX LENGTH: %d s", (uint32_t)(max_session_time_in_moving_away_mode / 1000.0));
 
-					fake_sensors_turn_on_radar();
+					tracking_sensors_turn_on_radar();
 					warn1("RADAR IS TURNED ON");
 
 					if(tracking_partner_start_session(&tracking_partner, new_session_id) == SUCCESS)
@@ -319,7 +319,7 @@ void tracking_control_thread()
 						int32_t current_session_id;
 						tracking_session_get_id(&tracking_session, &current_session_id);
 
-						fake_sensors_turn_off_radar();
+						tracking_sensors_turn_off_radar();
 						warn1("RADAR IS TURNED OFF");
 
 						tracking_session_reset(&tracking_session);
@@ -407,7 +407,7 @@ void tracking_control_thread()
 							int32_t current_session_id;
 							tracking_session_get_id(&tracking_session, &current_session_id);
 
-							fake_sensors_turn_off_radar();
+							tracking_sensors_turn_off_radar();
 							warn1("RADAR IS TURNED OFF");
 
 							tracking_session_reset(&tracking_session);
@@ -478,7 +478,7 @@ void tracking_control_thread()
 					object_tracking_start(&object_tracking, OBJECT_MOVING_TOWARD, current_time, max_session_time_in_moving_toward_mode);
 					warn1("OBJECT TRACKING MAX LENGTH: %d s", (uint32_t)(max_session_time_in_moving_toward_mode / 1000.0));
 
-					fake_sensors_turn_on_radar();
+					tracking_sensors_turn_on_radar();
 					warn1("RADAR IS TURNED ON");
 				}
 				// tracking error occured
@@ -512,7 +512,7 @@ void tracking_control_thread()
 
 					if(is_session_valid == true)
 					{
-						fake_sensors_turn_off_radar();
+						tracking_sensors_turn_off_radar();
 						warn1("RADAR IS TURNED OFF");
 
 						tracking_session_reset(&tracking_session);
@@ -565,7 +565,7 @@ void tracking_control_thread()
 			{
 				err1("TRACKING FAILURE OCCURED");
 
-				fake_sensors_turn_off_radar();
+				tracking_sensors_turn_off_radar();
 				err1("RADAR IS TURNED OFF");
 
 				if(is_failure_notification_needed == true)
