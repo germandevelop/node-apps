@@ -29,11 +29,15 @@ void tracking_sensors_turn_off_radar()
 }
 
 #else
+#include <stddef.h>
+#include "microwave_sensor.h"
 
 int tracking_sensors_init(movement_detect_t detect_movement_callback,
 			motion_data_receive_t receive_motion_data_callback)
 {
-	return FAILURE;
+	microwave_sensor_init(NULL);
+
+	return SUCCESS;
 }
 
 void tracking_sensors_turn_on_radar()

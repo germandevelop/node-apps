@@ -7,6 +7,8 @@
 
 #include "platform.h"
 
+#include "dmadrv.h"
+
 #include "SignatureArea.h"
 #include "DeviceSignature.h"
 #include "radio.h"
@@ -50,6 +52,7 @@ static osThreadId_t main_thread_id;
 
 static comms_layer_t* radio_setup(am_addr_t radio_address);
 static int logger_fwrite_boot(const char *ptr, int len);
+#include "tracking_sensors.h"
 
 static void main_thread()
 {
@@ -76,8 +79,10 @@ static void main_thread()
     		}
 	}
 
+
+
 	//init tracking unit
-	{
+	/*{
 		tracking_config_t tracking_config;
 
 		tracking_config.distance_between_units = DISTANCE_BETWEEN_TRACKING_UNITS_M;
@@ -94,7 +99,9 @@ static void main_thread()
 
         		while(true); // panic
     		}
-	}
+	}*/
+
+tracking_sensors_init(NULL, NULL);
 
 	// main loop
     	while(true)
@@ -105,7 +112,6 @@ static void main_thread()
     	}
 	return;
 }
-
 
 int main()
 {
@@ -120,6 +126,9 @@ int main()
     	log_init(BASE_LOG_LEVEL, &logger_fwrite_boot, NULL);
 
 	info1("GermanTestProject "VERSION_STR" (%d.%d.%d)", VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH);
+
+	// Initialize DMA subsystem in general
+	DMADRV_Init();
 
 	// Initialize OS kernel
 	osKernelInitialize();

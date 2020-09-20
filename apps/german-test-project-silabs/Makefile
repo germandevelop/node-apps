@@ -86,6 +86,7 @@ MW_CONVERTER_DIR       	:= $(ZOO)/mw_vehicle_detection
 
 ifneq ($(filter smnt-mb,$(MAKECMDGOALS)),)
 
+	SOURCES += microwave_sensor.c
 else
 	CFLAGS += -DUSE_SENSORS_SIMULATOR
 
@@ -146,7 +147,8 @@ INCLUDES += \
     -I$(SILABS_SDKDIR)/platform/radio/rail_lib/hal \
     -I$(SILABS_SDKDIR)/platform/radio/rail_lib/common \
     -I$(SILABS_SDKDIR)/platform/radio/rail_lib/protocol/ieee802154 \
-    -I$(SILABS_SDKDIR)/platform/radio/rail_lib/plugin/pa-conversions
+    -I$(SILABS_SDKDIR)/platform/radio/rail_lib/plugin/pa-conversions \
+    -I$(NODE_PLATFORM_DIR)/include
 
 SOURCES += \
     $(SILABS_SDKDIR)/util/silicon_labs/silabs_core/queue/circular_queue.c \
@@ -160,6 +162,7 @@ SOURCES += \
     $(SILABS_SDKDIR)/platform/emlib/src/em_gpio.c \
     $(SILABS_SDKDIR)/platform/emlib/src/em_i2c.c \
     $(SILABS_SDKDIR)/platform/emlib/src/em_adc.c \
+    $(SILABS_SDKDIR)/platform/emlib/src/em_prs.c \
     $(SILABS_SDKDIR)/platform/emlib/src/em_iadc.c \
     $(SILABS_SDKDIR)/platform/emlib/src/em_ldma.c \
     $(SILABS_SDKDIR)/platform/emlib/src/em_usart.c \
@@ -171,12 +174,14 @@ SOURCES += \
     $(SILABS_SDKDIR)/platform/emdrv/dmadrv/src/dmadrv.c \
     $(SILABS_SDKDIR)/platform/emdrv/gpiointerrupt/src/gpiointerrupt.c \
     $(SILABS_SDKDIR)/platform/radio/rail_lib/hal/hal_common.c \
+    $(NODE_PLATFORM_DIR)/common/platform_mutex.c \
     $(NODE_PLATFORM_DIR)/silabs/radio_rtos.c \
     $(NODE_PLATFORM_DIR)/common/radio_seqNum.c \
-    $(NODE_PLATFORM_DIR)/common/sys_panic.c \
+    $(NODE_PLATFORM_DIR)/common/sys_panic.c
 
 # logging
 ifneq ($(filter Lsmnt-mb,$(MAKECMDGOALS)),)
+
 	CFLAGS  += -DLOGGER_LDMA -DLOGGER_LDMA_DMADRV
 	SOURCES += $(NODE_PLATFORM_DIR)/silabs/logger_ldma.c
 	SOURCES += $(ZOO)/thinnect.lll/logging/loggers_ext.c
@@ -223,15 +228,14 @@ ifneq ($(filter smnt-mb,$(MAKECMDGOALS)),)
 	# DMA ADC
 	INCLUDES += -I$(ZOO)/dmadrv-adc/include/silabs
 	SOURCES += $(ZOO)/dmadrv-adc/src/silabs/adc_dmadrv.c
+
+	SOURCES += $(NODE_PLATFORM_DIR)/common/platform_adc.c
 else
 	# serial layer
 	SOURCES  += $(NODE_PLATFORM_DIR)/common/serial_protocol.c
 	SOURCES  += $(NODE_PLATFORM_DIR)/common/hdlc_tools.c
 	SOURCES  += $(NODE_PLATFORM_DIR)/silabs/serial_hdlc.c
 endif
-
-# platform stuff - watchdog, io etc...
-INCLUDES += -I$(NODE_PLATFORM_DIR)/include
 
 # ------------------------------------------------------------------------------
 
