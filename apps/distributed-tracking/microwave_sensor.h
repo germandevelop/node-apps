@@ -7,8 +7,10 @@ typedef struct motion_data motion_data_t;
 
 typedef void(*motion_data_receive_t)(motion_data_t const * const motion_data);
 
-
 void microwave_sensor_init(motion_data_receive_t receive_motion_data_callback);
+
+void microwave_sensor_turn_on();
+void microwave_sensor_turn_off();
 
 
 //Platform-specific MW sensor power-control function.

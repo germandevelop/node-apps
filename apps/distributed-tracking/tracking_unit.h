@@ -1,7 +1,7 @@
 #ifndef TRACKING_UNIT_H_
 #define TRACKING_UNIT_H_
 
-#include <inttypes.h>
+#include <stdint.h>
 
 typedef struct comms_layer comms_layer_t;
 

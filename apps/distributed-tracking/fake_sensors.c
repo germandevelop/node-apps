@@ -71,6 +71,8 @@ void fake_sensors_turn_off_radar()
 
 int fake_sensors_receive(const uint8_t *data, uint8_t size)
 {
+	static bool is_movement_previous_frame = false;
+
 	int ret_val = FAILURE;
 
 	debugb1("data", data, size);
@@ -85,7 +87,16 @@ int fake_sensors_receive(const uint8_t *data, uint8_t size)
 		fake_message.is_movement = raw_data->is_movement;
 
 		// process fake motion sensor
-		detect_fake_movement_callback(fake_message.is_movement);
+		if((is_movement_previous_frame == false) && (fake_message.is_movement == true))
+		{
+			is_movement_previous_frame = true;
+
+			detect_fake_movement_callback();
+		}
+		else if((is_movement_previous_frame == true) && (fake_message.is_movement == false))
+		{
+			is_movement_previous_frame = false;
+		}
 			
 		// process fake radar
 		if(is_radar_enabled == true)

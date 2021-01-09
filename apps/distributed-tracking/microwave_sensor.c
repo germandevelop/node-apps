@@ -14,25 +14,8 @@
 #include "motion_data.h"
 #include "result.h"
 
-// Energy threshold previously determined experimentally
-#define SMNT_MICROWAVE_ENERGY_THRESHOLD 0.20
-// Only 3 kHz has been tested in practice
+
 #define SMNT_MICROWAVE_SAMPLING_FREQUENCY 3000
-// Require at least 3 frames for event
-#define SMNT_MICROWAVE_MIN_EVENT_FRAMES 3
-// ~83 ms for a frame, so max ~12 seconds
-#define SMNT_MICROWAVE_MAX_EVENT_FRAMES 145
-// Consider event over after N frames
-#define SMNT_MICROWAVE_QUIET_FRAMES 3
-// Require at least 3 frames with adequate speed for event
-#define SMNT_MICROWAVE_MIN_SPEED_EVENT_FRAMES 3
-// Consider event over after N frames
-#define SMNT_MICROWAVE_SPEED_QUIET_FRAMES 3
-// Minimum probe
-#define SMNT_MICROWAVE_PROBE_FRAMES 2
-// Sleep for 1 second between MW activations
-#define SMNT_MICROWAVE_SLEEP_TIME_MS 1000UL
-// ADC precision - 12 bits
 #define SMNT_MICROWAVE_ADC_BITS 12
 
 
@@ -54,25 +37,31 @@ void microwave_sensor_init(motion_data_receive_t receive_motion_data_callback)
 
 	// Configure and enable sensing
 	semw_sensing_config_t scfg;
-	scfg.sleep_ms = SMNT_MICROWAVE_SLEEP_TIME_MS;
-	scfg.probe_frames = SMNT_MICROWAVE_PROBE_FRAMES;
-	scfg.quiet_frames = SMNT_MICROWAVE_QUIET_FRAMES;
-	scfg.min_event_frames = SMNT_MICROWAVE_MIN_EVENT_FRAMES;
-	scfg.max_event_frames = SMNT_MICROWAVE_MAX_EVENT_FRAMES;
-	scfg.energy_threshold = SMNT_MICROWAVE_ENERGY_THRESHOLD;
 	scfg.bits = SMNT_MICROWAVE_ADC_BITS;
 	scfg.frequency = SMNT_MICROWAVE_SAMPLING_FREQUENCY;
-	scfg.speed_quiet_frames = SMNT_MICROWAVE_SPEED_QUIET_FRAMES;
-	scfg.min_speed_event_frames = SMNT_MICROWAVE_MIN_SPEED_EVENT_FRAMES;
 
 	semw_enable(&scfg, microwave_sensor_data_callback, NULL);
 
 	return;
 }
 
+void microwave_sensor_turn_on()
+{
+	semw_trigger();
+
+	return;
+}
+
+void microwave_sensor_turn_off()
+{
+	semw_disable();
+
+	return;
+}
+
 void microwave_sensor_data_callback(uint32_t event_id, bool active, double speed, double energy, double max_speed, void *user)
 {
-	warn1("MICROWAVE SPEED: %4.2f ENERGY: %5.3f", speed, energy);
+	info1("MICROWAVE SPEED: %4.2f ENERGY: %5.3f", speed, energy);
 
 	if(receive_microwave_motion_data_callback != NULL)
 	{

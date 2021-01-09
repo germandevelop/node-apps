@@ -1,11 +1,9 @@
 #ifndef TRACKING_SENSORS_H_
 #define TRACKING_SENSORS_H_
 
-#include <stdbool.h>
-
 typedef struct motion_data motion_data_t;
 
-typedef void(*movement_detect_t)(bool is_movement);
+typedef void(*movement_detect_t)();
 typedef void(*motion_data_receive_t)(motion_data_t const * const motion_data);
 
 int tracking_sensors_init(movement_detect_t detect_movement_callback,

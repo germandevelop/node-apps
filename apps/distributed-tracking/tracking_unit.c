@@ -16,8 +16,7 @@
 #include "result.h"
 
 
-#define UNIT_MOTION_DETECTED_AT_START 	0B0000000000000001
-#define UNIT_MOTION_DETECTED_AT_END 	0B0000000000000010
+#define UNIT_MOTION_DETECTED	 	0B0000000000000001
 #define UNIT_TRACKING_FINISHED 		0B0000000000000100
 #define UNIT_FAILURE_OCCURED 		0B0000000000001000
 #define UNIT_COMMUNICATION_FAILED 	0B0000000000010000
@@ -40,12 +39,12 @@ static object_tracking_t object_tracking;
 
 static int32_t requested_session_id;
 
-static double tracking_partner_distance; // m
-static uint32_t max_session_time_in_moving_away_mode; // ms
+static double tracking_partner_distance; 		// m
+static uint32_t max_session_time_in_moving_away_mode; 	// ms
 static uint32_t max_session_time_in_moving_toward_mode; // ms
 
 
-static void on_sensor_movement_detetcted_ISR(bool is_movement);
+static void on_sensor_movement_detetcted_ISR();
 static void on_partner_tracking_requested_ISR(int32_t partner_session_id, bool is_session_requested);
 static void on_partner_summary_received_ISR(tracking_summary_t const * const partner_summary);
 static void on_partner_failure_occured_ISR(tracking_partner_error_t error_code);
@@ -117,26 +116,10 @@ int tracking_unit_init(tracking_config_t const * const tracking_config)
 }
 
 
-void on_sensor_movement_detetcted_ISR(bool is_movement)
+void on_sensor_movement_detetcted_ISR()
 {
-	static bool is_movement_previous_frame = false;
+	osThreadFlagsSet(tracking_control_thread_id, UNIT_MOTION_DETECTED);
 
-	if((is_movement_previous_frame == false) && (is_movement == true))
-	{
-		warn1("MOTION SENSOR BEGIN ISR");
-
-		is_movement_previous_frame = true;
-
-		osThreadFlagsSet(tracking_control_thread_id, UNIT_MOTION_DETECTED_AT_START);
-	}
-	else if((is_movement_previous_frame == true) && (is_movement == false))
-	{
-		warn1("MOTION SENSOR END ISR");
-
-		is_movement_previous_frame = false;
-
-		osThreadFlagsSet(tracking_control_thread_id, UNIT_MOTION_DETECTED_AT_END);
-	}
 	return;
 }
 
@@ -167,7 +150,7 @@ void on_partner_tracking_requested_ISR(int32_t partner_session_id, bool is_sessi
 	}
 	else
 	{
-		warn1("STOP TRACKING REQUEST ISR ID");
+		warn1("STOP TRACKING REQUEST ISR");
 		warn1("STOP TRACKING SESSION ID ISR: %d", partner_session_id);
 
 		osSemaphoreAcquire(tracking_partner_semaphore, osWaitForever);
@@ -242,8 +225,11 @@ void on_partner_failure_occured_ISR(tracking_partner_error_t error_code)
 
 void tracking_control_thread()
 {
-	const uint32_t waiting_flags = UNIT_MOTION_DETECTED_AT_START | UNIT_MOTION_DETECTED_AT_END | UNIT_TRACKING_FINISHED | UNIT_FAILURE_OCCURED | UNIT_COMMUNICATION_FAILED |
+	const uint32_t waiting_flags = UNIT_MOTION_DETECTED | UNIT_TRACKING_FINISHED | UNIT_FAILURE_OCCURED | UNIT_COMMUNICATION_FAILED |
 					PARTNER_START_REQUESTED | PARTNER_STOP_REQUESTED | PARTNER_SUMMARY_RECEIVED | PARTNER_FAILURE_OCCURED;
+
+	int32_t tracking_session_id = 0;
+	uint32_t tracking_session_begin = 0U;
 
     	while(true)
     	{
@@ -252,7 +238,9 @@ void tracking_control_thread()
 		bool is_tracking_failed = false;
 		bool is_failure_notification_needed = false;
 
-		const uint32_t current_time = osKernelGetTickCount();
+		++tracking_session_id;
+
+		warn1("\n\n\n");
 
 		osMutexAcquire(tracking_unit_mutex, osWaitForever);
 		osSemaphoreAcquire(tracking_partner_semaphore, osWaitForever);
@@ -261,7 +249,7 @@ void tracking_control_thread()
 			/*********************************************************************************/
 			// motion begin is detected with infrared sensor
 			/*********************************************************************************/
-			if((flags & UNIT_MOTION_DETECTED_AT_START) > 0U)
+			if((flags & UNIT_MOTION_DETECTED) > 0U)
 			{
 				bool is_tracking_session_active;
 				tracking_session_is_active(&tracking_session, &is_tracking_session_active);
@@ -275,20 +263,21 @@ void tracking_control_thread()
 					osMessageQueueReset(motion_data_queue);
 					warn1("\n\n\n");
 
-					const int32_t new_session_id = (int32_t)current_time;
+					tracking_session_begin = osKernelGetTickCount();
 
 					tracking_session_reset(&tracking_session);
-					tracking_session_set_id(&tracking_session, new_session_id);
+					tracking_session_set_id(&tracking_session, tracking_session_id);
 					warn1("TRACKING SESSION IS STARTED");
-					warn1("TRACKING SESSION ID: %d", new_session_id);
+					warn1("TRACKING SESSION ID: %d", tracking_session_id);
+					warn1("TRACKING SESSION BEGIN: %u", tracking_session_begin);
 
-					object_tracking_start(&object_tracking, OBJECT_MOVING_AWAY, current_time, max_session_time_in_moving_away_mode);
+					object_tracking_start(&object_tracking, OBJECT_MOVING_AWAY, tracking_session_begin, max_session_time_in_moving_away_mode);
 					warn1("OBJECT TRACKING MAX LENGTH: %d s", (uint32_t)(max_session_time_in_moving_away_mode / 1000.0));
 
 					tracking_sensors_turn_on_radar();
 					warn1("RADAR IS TURNED ON");
 
-					if(tracking_partner_start_session(&tracking_partner, new_session_id) == SUCCESS)
+					if(tracking_partner_start_session(&tracking_partner, tracking_session_id) == SUCCESS)
 					{
 						warn1("START TRACKING REQUEST IS SENT TO PARTNER");
 					}
@@ -307,7 +296,12 @@ void tracking_control_thread()
 				// object moves toward -> stop tracking
 				else if((is_tracking_session_active == true) && (object_tracking_mode == OBJECT_MOVING_TOWARD))
 				{
+					const uint32_t tracking_session_end = osKernelGetTickCount();
+					const uint32_t tracking_session_lenght = tracking_session_end - tracking_session_begin;
+
 					warn1("REPORT SESSION ID: %d", tracking_session.id);
+					warn1("TRACKING SESSION END: %u", tracking_session_end);
+					warn1("TRACKING SESSION LENGHT: %u  %us", tracking_session_lenght, tracking_session_lenght / 1000U);
 					warn1("REPORT MEASURED SPEED: %.3lf", tracking_session.unit_speed);
 					warn1("REPORT PARTNER SPEED: %.3lf", tracking_session.partner_speed);
 
@@ -345,14 +339,6 @@ void tracking_control_thread()
 			}
 
 			/*********************************************************************************/
-			// motion end is detected with infrared sensor
-			/*********************************************************************************/
-			if((flags & UNIT_MOTION_DETECTED_AT_END) > 0U)
-			{
-
-			}
-
-			/*********************************************************************************/
 			// tracking is finished -> send summary to partner
 			/*********************************************************************************/
 			if((flags & UNIT_TRACKING_FINISHED) > 0U)
@@ -376,6 +362,9 @@ void tracking_control_thread()
 
 					if(object_tracking_get_speed(&object_tracking, &unit_measured_speed) == SUCCESS)
 					{
+						tracking_sensors_turn_off_radar();
+						warn1("RADAR IS TURNED OFF");
+
 						tracking_session_set_unit_speed(&tracking_session, unit_measured_speed);
 
 						int32_t current_session_id;
@@ -385,7 +374,14 @@ void tracking_control_thread()
 
 						if(tracking_partner_send_summary(&tracking_partner, &tracking_summary) == SUCCESS)
 						{
+							const uint32_t tracking_session_end = osKernelGetTickCount();
+							const uint32_t tracking_session_lenght = tracking_session_end - tracking_session_begin;
+
 							warn1("TRACKING SUMMARY IS SENT TO PARTNER");
+							warn1("TRACKING SUMMARY SESSION ID: %d", tracking_summary.session_id);
+							warn1("TRACKING SESSION END: %u", tracking_session_end);
+							warn1("TRACKING SESSION LENGHT: %u  %us", tracking_session_lenght, tracking_session_lenght / 1000U);
+							warn1("TRACKING SUMMARY SPEED: %.3lf", tracking_summary.speed);
 						}
 						else
 						{
@@ -395,7 +391,12 @@ void tracking_control_thread()
 					}
 					else if(is_partner_speed_detected == true)
 					{
+						const uint32_t tracking_session_end = osKernelGetTickCount();
+						const uint32_t tracking_session_lenght = tracking_session_end - tracking_session_begin;
+
 						warn1("REPORT SESSION ID: %d", tracking_session.id);
+						warn1("TRACKING SESSION END: %u", tracking_session_end);
+						warn1("TRACKING SESSION LENGHT: %u  %us", tracking_session_lenght, tracking_session_lenght / 1000U);
 						warn1("REPORT MEASURED SPEED: %.3lf", tracking_session.unit_speed);
 						warn1("REPORT PARTNER SPEED: %.3lf", tracking_session.partner_speed);
 
@@ -466,16 +467,17 @@ void tracking_control_thread()
 				if(is_tracking_session_active == false)
 				{
 					osMessageQueueReset(motion_data_queue);
-					warn1("\n\n\n");
 
 					const int32_t new_session_id = requested_session_id;
+					tracking_session_begin = osKernelGetTickCount();
 
 					tracking_session_reset(&tracking_session);
 					tracking_session_set_id(&tracking_session, new_session_id);
 					warn1("TRACKING SESSION IS STARTED");
 					warn1("TRACKING SESSION ID: %d", new_session_id);
+					warn1("TRACKING SESSION BEGIN: %u", tracking_session_begin);
 
-					object_tracking_start(&object_tracking, OBJECT_MOVING_TOWARD, current_time, max_session_time_in_moving_toward_mode);
+					object_tracking_start(&object_tracking, OBJECT_MOVING_TOWARD, tracking_session_begin, max_session_time_in_moving_toward_mode);
 					warn1("OBJECT TRACKING MAX LENGTH: %d s", (uint32_t)(max_session_time_in_moving_toward_mode / 1000.0));
 
 					tracking_sensors_turn_on_radar();
@@ -503,7 +505,12 @@ void tracking_control_thread()
 				// stop tracking
 				if((is_tracking_session_active == true) && (object_tracking_mode == OBJECT_MOVING_AWAY))
 				{
+					const uint32_t tracking_session_end = osKernelGetTickCount();
+					const uint32_t tracking_session_lenght = tracking_session_end - tracking_session_begin;
+
 					warn1("REPORT SESSION ID: %d", tracking_session.id);
+					warn1("TRACKING SESSION END: %u", tracking_session_end);
+					warn1("TRACKING SESSION LENGHT: %u  %us", tracking_session_lenght, tracking_session_lenght / 1000U);
 					warn1("REPORT MEASURED SPEED: %.3lf", tracking_session.unit_speed);
 					warn1("REPORT PARTNER SPEED: %.3lf", tracking_session.partner_speed);
 
@@ -563,7 +570,10 @@ void tracking_control_thread()
 			/*********************************************************************************/
 			if(is_tracking_failed == true)
 			{
-				err1("TRACKING FAILURE OCCURED");
+				int32_t current_session_id;
+				tracking_session_get_id(&tracking_session, &current_session_id);
+
+				err1("TRACKING FAILURE OCCURED: %d", current_session_id);
 
 				tracking_sensors_turn_off_radar();
 				err1("RADAR IS TURNED OFF");
@@ -650,6 +660,13 @@ uint32_t calculate_max_session_length(double speed)
 
 	const double session_length_s = tracking_partner_distance / speed_m_per_s;
 
-	return (uint32_t)(session_length_s * 1000.0) + 1U;
+	if(session_length_s < 40.0)
+	{
+		return (uint32_t)(session_length_s * 1000.0) + 1U;
+	}
+	else
+	{
+		return (uint32_t)(30.0 * 1000.0);
+	}
 }
 

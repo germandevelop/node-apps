@@ -33,7 +33,6 @@ INCBIN(Header, "header.bin");
 #include "result.h"
 
 
-
 // CONFIGURABLE VALUES
 /************************************************************************************************/
 // tracking
@@ -52,7 +51,6 @@ static osThreadId_t main_thread_id;
 
 static comms_layer_t* radio_setup(am_addr_t radio_address);
 static int logger_fwrite_boot(const char *ptr, int len);
-#include "tracking_sensors.h"
 
 static void main_thread()
 {
@@ -79,17 +77,15 @@ static void main_thread()
     		}
 	}
 
-
-
 	//init tracking unit
-	/*{
+	{
 		tracking_config_t tracking_config;
 
-		tracking_config.distance_between_units = DISTANCE_BETWEEN_TRACKING_UNITS_M;
-		tracking_config.pass_detection_threshold = PASS_DETECTION_THRESHOLD;
-		tracking_config.radio_module = radio;
-		tracking_config.partner_radio_address = TRACKING_PARTNER_RADIO_ADDRESS;
-		tracking_config.radio_port = TRACKING_RADIO_PORT;
+		tracking_config.distance_between_units 		= DISTANCE_BETWEEN_TRACKING_UNITS_M;
+		tracking_config.pass_detection_threshold 	= PASS_DETECTION_THRESHOLD;
+		tracking_config.radio_module 			= radio;
+		tracking_config.partner_radio_address 		= TRACKING_PARTNER_RADIO_ADDRESS;
+		tracking_config.radio_port 			= TRACKING_RADIO_PORT;
 
 		const int result = tracking_unit_init(&tracking_config);
 
@@ -99,16 +95,19 @@ static void main_thread()
 
         		while(true); // panic
     		}
-	}*/
-
-tracking_sensors_init(NULL, NULL);
+	}
 
 	// main loop
     	while(true)
     	{
 		info1("MAIN THREAD");
 
-		osDelay(10000);
+		//PLATFORM_LedsSet(1);
+		PLATFORM_LedsSet(PLATFORM_LedsGet()^1);
+		osDelay(200U);
+		PLATFORM_LedsSet(0);
+
+		osDelay(20000U);
     	}
 	return;
 }
@@ -125,7 +124,7 @@ int main()
     	RETARGET_SerialInit();
     	log_init(BASE_LOG_LEVEL, &logger_fwrite_boot, NULL);
 
-	info1("GermanTestProject "VERSION_STR" (%d.%d.%d)", VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH);
+	info1("DistributedTracking "VERSION_STR" (%d.%d.%d)", VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH);
 
 	// Initialize DMA subsystem in general
 	DMADRV_Init();

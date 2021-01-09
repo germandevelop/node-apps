@@ -13,3 +13,5 @@ make tsb0 install TSB018
 # Testing
 It is necessary to install Ruby to compile unit tests  
 apt install ruby  
+
+./sensor-simulator --input ~/car.csv serial@/dev/tsb01801 serial@/dev/tsb01901  

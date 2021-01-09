@@ -2,7 +2,7 @@
 
 # _______________________ User overridable configuration _______________________
 
-PROJECT_NAME            ?= radiocounttoleds
+PROJECT_NAME            ?= distributedtracking
 
 VERSION_MAJOR           ?= 1
 VERSION_MINOR           ?= 0
@@ -182,6 +182,7 @@ SOURCES += \
 # logging
 ifneq ($(filter Lsmnt-mb,$(MAKECMDGOALS)),)
 
+	CFLAGS	+= -DLOGGER_TIMESTAMP
 	CFLAGS  += -DLOGGER_LDMA -DLOGGER_LDMA_DMADRV
 	SOURCES += $(NODE_PLATFORM_DIR)/silabs/logger_ldma.c
 	SOURCES += $(ZOO)/thinnect.lll/logging/loggers_ext.c
